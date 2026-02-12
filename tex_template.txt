@@ -1,0 +1,12 @@
+\documentclass[dvipdfmx]{jsarticle} % 日本語対応
+\usepackage[demo]{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{url}
+% 必要に応じて他パッケージを追加
+\begin{document}
+\title{日本語訳: [論文ID]}
+\author{Paper2TeX}
+\date{\today}
+\maketitle

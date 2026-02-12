@@ -1,4 +1,5 @@
 downloads
 outputs
 test.py
-paper2tex
+paper2tex/
+.mypy_cache/
