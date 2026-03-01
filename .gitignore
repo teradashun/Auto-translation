@@ -4,4 +4,4 @@ test.py
 paper2tex/
 .mypy_cache/
 .env
-test2.py
+__pycache__/

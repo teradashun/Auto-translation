@@ -1,0 +1,11 @@
+services:
+  scraper:
+    build: .
+    volumes:
+      - .:/app
+    ports:
+      - 8000:8000
+    user: "${UID}:${GID}"
+    env_file:
+      - .env
+    tty: true

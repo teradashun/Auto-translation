@@ -1,4 +1,5 @@
-\documentclass[dvipdfmx]{ltjsarticle} % 日本語対応
+\documentclass[dvipdfmx, twocolumn]{ltjsarticle} % twocolumn
+\usepackage[top=20truemm,bottom=20truemm,left=15truemm,right=15truemm]{geometry} % 余白調整
 \usepackage[demo]{graphicx}
 \usepackage{amsmath,amssymb}
 \usepackage{algorithm}
