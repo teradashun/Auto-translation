@@ -21,7 +21,7 @@ def get_arxiv_id(file_url: str) -> str | None:
 
     :param file_url: 抽出対象となるPDFファイルのURL文字列
     :type file_url: str
-    :return: 抽出されたarXiv ID（例: '2504.20571'）。マッチしない場合はNone。
+    :return: 抽出されたarXiv ID（例: '2504.20571'）。マッチしない場合はNone
     :rtype: str
     """
     m = re.search(r"\b[0-9]{4}[.][0-9]{5,}(v[0-9]+)?\b", file_url)
@@ -31,41 +31,47 @@ def get_arxiv_id(file_url: str) -> str | None:
         return None
 
 
-def download_paper(files: dict, client: arxiv.Client, download_dir: Path) -> None:
+def download_paper(url: str, client: arxiv.Client, download_dir: Path) -> str | None:
     """
     指定されたURLリストから論文PDFをダウンロードし、指定ディレクトリに保存
 
-    :param files: 保存するファイル名（キー）とURL（値）のペアを持つ辞書
-    :type files: dict
+    :param files: 保存するURLの文字列
+    :type files: str
     :param client: arxivライブラリのClientインスタンス
     :type client: object
     :param download_dir: PDFファイルの保存先ディレクトリパス
     :type download_dir: Path
     """
-    for i, (filename, url) in enumerate(files.items()):
-        # arxiv_idの取得
-        arxiv_id = get_arxiv_id(url)
+    # arxiv_idの取得
+    arxiv_id = get_arxiv_id(url)
 
-        if arxiv_id:
-            # pdfファイルのダウンロード
-            try:
-                # ファイルの拡張子をpdfに変換
-                filename = Path(filename).with_suffix(".pdf")
+    if arxiv_id:
+        # pdfファイルのダウンロード
+        try:
+            # ファイルの拡張子をpdfに変換
+            arxiv_id_pdf = Path(f"{arxiv_id}.pdf")
 
-                if filename.exists():
-                    print(f"{filename}は既に存在するためスキップします。")
-                    continue
+            if arxiv_id_pdf.exists():
+                print(
+                    f"{arxiv_id_pdf}.pdfは既に存在するため、ダウンロードをスキップします。"
+                )
+                return arxiv_id
 
-                search_by_id = arxiv.Search(id_list=[arxiv_id])
-                result = next(client.results(search_by_id))
-                result.download_pdf(dirpath=download_dir, filename=filename)
-                print(f"{i + 1}件目のダウンロードが完了しました。")
+            search_by_id = arxiv.Search(id_list=[arxiv_id])
+            result = next(client.results(search_by_id))
+            result.download_pdf(dirpath=download_dir, filename=arxiv_id_pdf)
+            print(f"{arxiv_id_pdf}のダウンロードが完了しました。")
+            return arxiv_id
 
-            except FileNotFoundError as e:
-                print(f"ファイルが見つかりませんでした。 {e}")
+        except FileNotFoundError as e:
+            print(f"ファイルが見つかりませんでした。 {e}")
+            return None
+
+    else:
+        return None
 
 
-def pdf_to_markdown(download_dir: Path, outputs_dir: Path) -> None:
+def pdf_to_markdown(arxiv_id: str, download_dir: Path, outputs_dir: Path) -> None:
     """
     指定ディレクトリ内のPDFファイルをMarkdown形式に変換して保存
     pymupdf4llmを使用して変換を行い、ファイル名は維持したまま拡張子を.mdに変更
@@ -75,27 +81,28 @@ def pdf_to_markdown(download_dir: Path, outputs_dir: Path) -> None:
     :param outputs_dir: 変換後のMarkdownファイルを保存するディレクトリ
     :type outputs_dir: Path
     """
-    for file_path in download_dir.iterdir():
-        # 拡張子がpdfのファイルのみMarkdown化
-        if file_path.suffix == ".pdf":
-            try:
-                md_text = pymupdf4llm.to_markdown(file_path)
 
-                # 拡張子を除いたファイル名を取得
-                filename = file_path.stem
+    file_path = download_dir / (arxiv_id + ".pdf")
+    # 拡張子がpdfのファイルのみMarkdown化
+    if file_path.suffix == ".pdf":
+        try:
+            md_text = pymupdf4llm.to_markdown(file_path)
 
-                output_path = outputs_dir / (filename + ".md")
+            # 拡張子を除いたファイル名を取得
+            filename = file_path.stem
 
-                if output_path.exists():
-                    print(f"{filename}は既に存在するためスキップします。")
-                    continue
+            output_path = outputs_dir / (filename + ".md")
 
-                output_path.write_bytes(md_text.encode("utf-8"))
+            if output_path.exists():
+                print(f"{filename}.mdは既に存在するため、Markdown化をスキップします。")
+                return
 
-                print(f"{filename}をmarkdown化しました")
+            output_path.write_bytes(md_text.encode("utf-8"))
 
-            except FileNotFoundError as e:
-                print(f"ファイルが見つかりませんでした。 {e}")
+            print(f"{filename}をmarkdown化しました")
+
+        except FileNotFoundError as e:
+            print(f"ファイルが見つかりませんでした。 {e}")
 
 
 # Markdownファイルを読み込む関数
@@ -106,7 +113,7 @@ def read_markdown_file(file_path: Path) -> str:
 
     :param file_path: 読み込むファイルのパス
     :type file_path: Path
-    :return: ファイルのテキスト内容。エラー時は空文字。
+    :return: ファイルのテキスト内容。エラー時は空文字
     :rtype: str
     """
     try:
@@ -120,10 +127,27 @@ def read_markdown_file(file_path: Path) -> str:
         return ""
 
 
+def clean_text(text: str) -> str:
+    pattern_1 = r"^\*\*\s*(\d+(?:\.\d+)*)\s*\*\*\s+\*\*(.*?)\*\*.*$"
+    pattern_2 = r"^\*\*(Acknowledgements|References)\*\*.*$"
+
+    # 「**1** **Introduction**」 → 「## 1 Introduction」へ変換
+    cleaned_text = re.sub(
+        pattern_1, r"## \1 \2", text, flags=re.MULTILINE  # 行の先頭を探す
+    )
+
+    # 無番号見出しの変換
+    cleaned_text = re.sub(
+        pattern_2, r"## \1", cleaned_text, flags=re.MULTILINE | re.IGNORECASE
+    )
+
+    return cleaned_text
+
+
 def split_markdown_by_section(outputs_dir: Path) -> None:
     """
     Markdownファイルをセクション（見出し）ごとに分割し、指定サイズを超える場合はさらにチャンク分割して保存
-    分割されたファイルは `outputs_dir/split/元のファイル名/` 配下に保存される
+    分割されたファイルは outputs_dir/split/元のファイル名/ 配下に保存される
 
     :param outputs_dir: 分割対象のMarkdownファイルが格納されているディレクトリ
     :type outputs_dir: Path
@@ -137,8 +161,9 @@ def split_markdown_by_section(outputs_dir: Path) -> None:
         headers_to_split_on=headers_to_split_on, strip_headers=False  # 見出しを保持
     )
 
-    # 分割する最大の文字数を設定
+    # 分割する最大と最小の文字数を設定
     max_chunk_size = 3000
+    min_chunk_size = 500
 
     chunk_splitter = RecursiveCharacterTextSplitter(
         chunk_size=max_chunk_size,  # 1チャンクの最大文字数
@@ -150,13 +175,7 @@ def split_markdown_by_section(outputs_dir: Path) -> None:
         if file_path.is_file() and file_path.suffix == ".md":
             text = read_markdown_file(file_path)
 
-            # 「**1** **Introduction**」 → 「## 1 Introduction」へ変換
-            cleaned_text = re.sub(
-                r"^\*\*\s*(\d+(?:\.\d+)*)\s*\*\*\s+\*\*(.*?)\*\*.*$",
-                r"## \1 \2",
-                text,
-                flags=re.MULTILINE,  # 行の先頭を探す
-            )
+            cleaned_text = clean_text(text)
 
             header_splits = markdown_splitter.split_text(cleaned_text)
 
@@ -165,8 +184,12 @@ def split_markdown_by_section(outputs_dir: Path) -> None:
             file_split_dir.mkdir(parents=True, exist_ok=True)
 
             final_chunks = []
+            skip_Section = ["Acknowledgements", "References"]
 
             for split in header_splits:
+                # skip_Sectionに含まれる章が登場したら繰り返し終了
+                if split.metadata.get("Section") in skip_Section:
+                    break
 
                 # 3000文字を超えた場合
                 if len(split.page_content) > max_chunk_size:
@@ -209,12 +232,19 @@ def split_markdown_by_section(outputs_dir: Path) -> None:
                 else:
                     current_batch_text += "\n\n" + content
 
-            # 4. ループ後の端数処理
+            # ループ後の端数処理
             if current_batch_text:
-                batched_chunks.append(
-                    {"title": current_batch_title, "content": current_batch_text}
-                )
 
+                # 500文字を下回った場合
+                if len(current_batch_text) < min_chunk_size and batched_chunks:
+                    batched_chunks[-1]["content"] += "\n\n" + current_batch_text
+
+                else:
+                    batched_chunks.append(
+                        {"title": current_batch_title, "content": current_batch_text}
+                    )
+
+            # mdファイルへの書き込み
             for i, chunk in enumerate(batched_chunks):
                 title = chunk["title"]
                 combined_text = chunk["content"]
@@ -223,7 +253,9 @@ def split_markdown_by_section(outputs_dir: Path) -> None:
                 output_path = file_split_dir / (f"{i:02d}_{safe_title}" + ".md")
 
                 if output_path.exists():
-                    print(f"{output_path.name} は既に存在するためスキップします。")
+                    print(
+                        f"{output_path.name} は既に存在するため、Markdownの分割はスキップします。"
+                    )
 
                     continue
                 output_path.write_bytes(combined_text.encode("utf-8"))
@@ -235,11 +267,17 @@ def split_markdown_by_section(outputs_dir: Path) -> None:
 
 
 def generate_with_retry(
-    client: genai.Client, model: str, contents: list[str], max_retries: int = 10
+    client: genai.Client, model: str, contents: list[Any], max_retries: int = 10
 ) -> Any | None:
     """
-    API呼び出しをリトライ処理付きで実行する関数。
-    エラー発生時、指定された時間（指数バックオフ）待機してから再試行
+    Google GenAI API呼び出しをリトライ処理付きで実行する
+    レート制限（429）やサーバーエラー（503）発生時、指数バックオフを用いて待機時間を増やしながら再試行
+
+    :param client: Google GenAI Clientインスタンス
+    :param model: 使用するモデル名
+    :param contents: プロンプトと入力テキストのリスト
+    :param max_retries: 最大リトライ回数
+    :return: 生成結果オブジェクト。失敗時はNone
     """
     for attempt in range(max_retries):
         try:
@@ -253,7 +291,6 @@ def generate_with_retry(
                 or "503" in error_str
             ):
                 # 待機時間を計算: (回数×5秒) + 乱数。例: 5s, 10s, 15s...
-                # APIが "Retry in 48s" 等と返しても、自動的に徐々に長い待機時間になるため対応可能
                 wait_time = (2**attempt) + random.uniform(1, 5)
                 # 初期の待機時間を少し長めに設定
                 if attempt > 2:
@@ -272,7 +309,41 @@ def generate_with_retry(
     return None
 
 
+def clean_latex(text: str) -> str:
+    # 図と表を削除
+    pattern_1 = r"\\begin\s*\{(table|figure)\*?\}.*?\\end\s*\{\1\*?\}"
+    pattern_2 = r"\\begin\s*\{(tabular)\*?\}.*?\\end\s*\{\1\*?\}"
+
+    # Markdown表を削除
+    pattern_3 = r"^(?:\|.*\|\n+)+(\|.*\|)$"
+
+    # 数式以外の_を削除
+    pattern_4 = r"_(.*?)_"
+
+    cleaned_text = re.sub(pattern_1, "", text, flags=re.DOTALL)
+    cleaned_text = re.sub(pattern_2, "", cleaned_text, flags=re.DOTALL)
+    cleaned_text = re.sub(pattern_3, "", cleaned_text, flags=re.MULTILINE)
+    cleaned_text = re.sub(pattern_4, r"\1", cleaned_text, flags=re.MULTILINE)
+
+    return cleaned_text
+
+
 def translate_to_latex(outputs_dir: Path) -> None:
+    """
+    分割されたMarkdownファイルを読み込み、Gemini APIを使用して日本語LaTeX形式に翻訳
+    翻訳結果は outputs_dir/tex/ 配下に配下に保存される
+
+    処理内容:
+    1. プロンプトによる厳格なLaTeXフォーマット指示
+    2. 数式、参照、アルゴリズム環境の保持
+    3. Markdownコードブロックの除去処理
+
+    :param outputs_dir: データが格納されているルートディレクトリ
+    :type outputs_dir: Path
+    :raises ValueError: 環境変数 GEMINI_API_KEY が設定されていない場合
+    """
+    load_dotenv()
+
     # 翻訳するファイルのパスを取得
     translate_path = outputs_dir / "split"
 
@@ -286,23 +357,44 @@ def translate_to_latex(outputs_dir: Path) -> None:
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
-    # Gemma 3 向けに少し具体性を増したプロンプト
-    prompt = r"""
-    Task: Translate the following academic paper text from English to Japanese
-          and format it as LaTeX code.
+    # プロンプト
+    prompt = r"""                                                                                      
+    タスク: 以下の学術論文のテキストを英語から日本語に翻訳し、LaTeXコードとして整形してください。
 
     # Rules (Strictly Follow):
-    1. **Language**: The output MUST be in **Japanese** (日本語).
-       Do not output English sentences except for technical terms or proper nouns.
-    2. **Format**: Use standard LaTeX syntax.
-       - Use `algorithm`, `algpseudocode` for algorithms.
-       - Use `table`, `caption`, `resizebox` for tables.
-       - Keep math equations ($...$) exactly as they are in the original.
-    3. **Completeness**: Translate the entire content. Do not summarize.
-    4. **Output**: Only provide the LaTeX code. No conversational text.
-    5. **No Preamble**: Do NOT include \documentclass, \usepackage, \begin{document},
-         or \end{document}.
-       Output ONLY the translated body text.
+    1. 言語: 出力は必ず日本語で行うこと。いかなる理由があっても、段落や文章全体を英語のまま出力することを固く禁じる。
+    2. 専門用語の扱い: アルゴリズム名（例: ResNet）や一般化されていない技術用語のみ、英単語のまま文中に組み込むことを許可する。
+       ただし、その場合でも文全体は必ず日本語で構成すること。
+    3. フォーマット: 標準的なLaTeX構文を使用すること。
+       - アルゴリズムには algorithm, algpseudocode を使用すること。
+       - だ・である口調を使用すること。
+       - 数式 ($...$) は元のままにすること。
+       - 数式モード（$...$ または $$...$$）の中では、アンダースコア _ を絶対にエスケープ（\_）しないこと。
+        ・悪い例: \sigma\_i
+        ・良い例: \sigma_i
+       - 変数（x, y, hなど）や数値比較（> < =）は、必ず数式モード $...$ で囲むこと。
+        ・悪い例: 悪い例: x > 0
+        ・良い例: 良い例: $x > 0$
+    4. 完全性: 全ての内容を翻訳すること。要約はしないこと。
+    5. Markdown記法の完全排除:
+       - 出力テキストにMarkdownの装飾記号（**bold**, _italic_, `code`）を絶対に残さないこと。
+       - 太字は \textbf{...} に、斜体は \textit{...} に変換すること。
+       - 悪い例: **x**
+       - 良い例: \textbf{x} or $\mathbf{x}$
+       - 悪い例: _Plain_
+       - 良い例: \textit{Plain}
+    6. 数式のブロック化:
+       - 独立した数式や定義式は、必ず $$ ... $$ または \begin{equation} ... \end{equation} で囲むこと。
+       - インラインのMarkdown（_W_ など）で数式を表現しないこと。
+    7. 出力: 出力は純粋なLaTeXコードのみ。Markdownのフォーマット（latex ...  など）は不要。
+    8. プリアンブルなし: \documentclass, \usepackage, \begin{document},
+       または \end{document} を含めないこと。
+       翻訳された本文のみを出力すること。
+    9. 見出しの変換ルール:
+       - 1つの数字 (例: 1) は \section*{} に変換すること。
+       - ドット1つ (例: 1.1) は \subsection*{} に変換すること。
+       - ドット2つ (例: 1.1.1) は \subsubsection*{} に変換すること。
+       - 数字のない太字 (例: **Abstract**) は \textbf{} を使用すること。
 
     # Input Text (English):
     """
@@ -329,7 +421,7 @@ def translate_to_latex(outputs_dir: Path) -> None:
             file_path = tex_dir / (file.stem + ".tex")
 
             if file_path.exists():
-                print(f"{file.name} は既に存在するためスキップします。")
+                print(f"{file.name} .texは既に存在するため、翻訳をスキップします。")
                 continue
 
             try:
@@ -344,13 +436,15 @@ def translate_to_latex(outputs_dir: Path) -> None:
                 )
 
                 if response and response.text:
-                    # GemmaがMarkdownコードブロックを含めて返してくる場合の対策（整形）
+                    # GemmaがMarkdownコードブロックを含めて返してくる場合の対策
                     clean_text = (
                         response.text.replace("```latex", "")
                         .replace("```tex", "")
                         .replace("```", "")
                         .strip()
                     )
+
+                    clean_text = clean_latex(clean_text)
 
                     file_path.write_bytes(clean_text.encode("utf-8"))
                     print(f"DONE: {file.name} の翻訳完了")
@@ -360,22 +454,36 @@ def translate_to_latex(outputs_dir: Path) -> None:
             except Exception as e:
                 print(f"ERROR {file.name}: {e}")
 
-            time.sleep(2)
 
+def create_final_package(outputs: Path, col_num: int) -> None:
+    """
+    翻訳された複数のTeXファイルを結合し、テンプレートに埋め込んで最終的なZipパッケージを作成
 
-def create_final_package(outputs: Path) -> None:
+    処理内容:
+    1. tex_template.txt の読み込み
+    2. 分割されたTeXファイルを順序通りに結合
+    3. Zipファイルとして outputs/package/ に出力
+
+    :param outputs: データが格納されているルートディレクトリ
+    :type outputs: Path
+    """
     # 入力するTexファイルの親ディレクトリ指定
     tex_files_path = outputs / "tex"
 
     # 出力ファイルの親ディレクトリ作成
     output_base_path = outputs / "package"
 
-    # texのテンプレートを読み込み
-    with open("tex_template.txt") as f:
-        main_tex = f.read()
-
     for translated_paper_tex_dir in tex_files_path.iterdir():
         paper_name = translated_paper_tex_dir.name
+
+        # texのテンプレートを読み込み
+        parent_file_path = Path(__file__).parent
+        if col_num == 2:
+            file_path = parent_file_path / "tex_template_2col.txt"
+            main_tex = file_path.read_text(encoding="utf-8")
+        else:
+            file_path = parent_file_path / "tex_template.txt"
+            main_tex = file_path.read_text(encoding="utf-8")
 
         # 出力先のディレクトリを作成
         main_tex_dir = output_base_path / paper_name
@@ -406,23 +514,3 @@ def create_final_package(outputs: Path) -> None:
 
             except Exception as e:
                 print(f"ERROR {paper_name}: {e}")
-
-
-if __name__ == "__main__":
-    load_dotenv()
-
-    # 入力するファイル名（英語）とurl
-    files = {"early_exit": "https://arxiv.org/abs/2409.05336"}
-
-    client = arxiv.Client()
-
-    download_dir = Path("downloads")
-    download_dir.mkdir(exist_ok=True)
-    outputs_dir = Path("outputs")
-    outputs_dir.mkdir(exist_ok=True)
-
-    download_paper(files, client, download_dir)
-    pdf_to_markdown(download_dir, outputs_dir)
-    split_markdown_by_section(outputs_dir)
-    translate_to_latex(outputs_dir)
-    create_final_package(outputs_dir)
