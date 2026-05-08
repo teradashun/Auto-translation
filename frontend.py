@@ -17,9 +17,7 @@ if st.button("実行"):
         with st.spinner("論文を変換・翻訳しています。しばらくお待ちください..."):
             input_data = {"url": url, "form": form, "col_num": col_num}
             try:
-                response = requests.get(
-                    "http://localhost:8000/access", params=input_data
-                )
+                response = requests.post("http://backend:8000/access", json=input_data)
 
                 if response.status_code == 200:
                     st.session_state["file_data"] = response.content
